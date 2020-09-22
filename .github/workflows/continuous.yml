@@ -1,0 +1,124 @@
+# (c) Srevin Saju 2020. All rights reserved 
+# Licensed under MIT License
+# Continuous Integration to release configured AppImages for gnvim GUI for neovim
+
+name: Continuous
+
+on:
+  schedule:
+    - cron: "5 */12 * * *"
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+
+jobs:
+  centos:
+    runs-on: ubuntu-18.04
+    container:
+      image: centos:7
+    steps:
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+      - name: Setup user github 
+        run: |
+          yum -y install sudo
+          useradd github
+          usermod -aG wheel github
+          sed -i 's,%wheel\tALL=(ALL)\tALL,%wheel\tALL=(ALL)\tNOPASSWD:ALL,g' /etc/sudoers
+          su - github
+      
+      - name: Update Repository
+        run: |
+          sudo yum -y update
+
+      - name: Install OpenSSL and Git
+        run: |
+          sudo yum -y install https://packages.endpoint.com/rhel/7/os/x86_64/endpoint-repo-1.7-1.x86_64.rpm
+          sudo yum -y install git jq curl
+          sudo yum -y install openssl gcc-c++ make gcc openssl-devel tcl sqlite-devel libsecret libsecret-devel wget
+          sudo yum -y groupinstall "Development Tools"
+          echo "Installing build dependencies"
+          sudo yum -y install gtk3-devel
+          sudo rpm --import http://li.nux.ro/download/nux/RPM-GPG-KEY-nux.ro
+          sudo yum -y install epel-release && sudo rpm -Uvh http://li.nux.ro/download/nux/dextop/el7/x86_64/nux-dextop-release-0-5.el7.nux.noarch.rpm
+          sudo yum -y install webkitgtk4-devel
+          sudo yum -y --enablerepo=nux-dextop install webkitgtk-devel
+          wget https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 -O jq
+          chmod +x jq
+          sudo mv jq /usr/bin/jq
+          jq --version
+
+      - name: Current Directory Structure
+        run: |
+          ls 
+ 
+      - uses: actions/checkout@v2
+      - name: Set up Rust / cargo
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y -q
+          export PATH=$PATH:$HOME/.cargo/bin
+          cargo --version
+          rustc --version
+          source $HOME/.cargo/env
+
+      - name: Configure GNvim
+        run: |
+          git describe --tags --always
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          source $HOME/.cargo/env
+          cargo build --release
+          export SRC_ROOT="$PWD"
+          cd target/release
+          wget $(curl https://api.github.com/repos/neovim/neovim/releases/latest | jq -r '.assets[].browser_download_url' | grep nvim.appimage | grep -v zsync) -O neovim.AppImage
+          chmod +x neovim.AppImage
+          ./neovim.AppImage --appimage-extract
+          mkdir AppDir
+          mv squashfs-root AppDir/nvim
+          wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          cp $SRC_ROOT/desktop/gnvim_128.png gnvim.png
+          ./linuxdeploy*.AppImage --appdir=AppDir --executable=./gnvim --desktop-file=../../desktop/gnvim.desktop --icon-file=gnvim.png --custom-apprun=../../appimage/AppRun
+          wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x ./appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage AppDir -n -u 'gh-releases-zsync|vhakulinen|gnvim|latest|GNvim*.AppImage.zsync' GNvim-`git describe --tags --always`.glibc`ldd --version | grep 'ldd ' | grep -o ').[0-9].[0-9][0-9]' | grep -o '[0-9].[0-9][0-9]'`-$(uname -m).AppImage
+          rm -r ./appimagetool-x86_64.AppImage
+          chmod +x *.AppImage
+          rm -rf squashfs-root
+          mkdir dist
+          mv GNvim*.AppImage* dist/.
+
+      - name: Upload Appimage
+        uses: actions/upload-artifact@v1.0.0
+        with:
+          name: GNvim-continuous-x86_64.AppImage
+          path: 'target/release/dist/'
+
+  Release:
+    needs: [centos]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        version: [3.8]
+
+    steps:
+    - uses: actions/download-artifact@v1
+      with:
+        name: GNvim-continuous-x86_64.AppImage
+
+
+    - name: Release
+      uses: marvinpinto/action-automatic-releases@latest
+      if: github.ref == 'refs/heads/master'
+      with:
+        automatic_release_tag: continuous
+        title: Continuous AppImage Release
+        prerelease: true
+        files: |
+          GNvim-continuous-x86_64.AppImage
+
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+ 
+
