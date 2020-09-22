@@ -37,7 +37,7 @@ jobs:
       - name: Install OpenSSL and Git
         run: |
           sudo yum -y install https://packages.endpoint.com/rhel/7/os/x86_64/endpoint-repo-1.7-1.x86_64.rpm
-          sudo yum -y install git jq
+          sudo yum -y install git jq curl
           sudo yum -y install openssl gcc-c++ make gcc openssl-devel tcl sqlite-devel libsecret libsecret-devel wget
           sudo yum -y groupinstall "Development Tools"
           echo "Installing build dependencies"
