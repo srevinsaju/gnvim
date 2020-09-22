@@ -61,7 +61,7 @@ jobs:
 
       - name: Configure GNvim
         run: |
-          git describe --tags
+          git describe --tags --always
           export APPIMAGE_EXTRACT_AND_RUN=1
           source $HOME/.cargo/env
           cargo build --release
